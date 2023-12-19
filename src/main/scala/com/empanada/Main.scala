@@ -1,28 +1,40 @@
 package com.empanada
 
 import cats.effect._
-import com.comcast.ip4s._
-import org.http4s.HttpRoutes
-import org.http4s.dsl.io._
-import org.http4s.ember.server._
-import org.http4s.implicits._
+import com.empanada.Config.{BotKey, OpenRouterApiKey, OpenRouterUri, config}
+import org.http4s.blaze.client.BlazeClientBuilder
+import telegramium.bots.high._
 
 object Main extends IOApp {
-
-  val helloWorldService = HttpRoutes.of[IO] {
-    case GET -> Root / "hello" / name =>
-      Ok(s"Hello, $name.")
-  }.orNotFound
-
   def run(args: List[String]): IO[ExitCode] = {
-    TelegramAPI.runBots()
-    EmberServerBuilder
-      .default[IO]
-      .withHost(ipv4"0.0.0.0")
-      .withPort(port"8080")
-      .withHttpApp(helloWorldService)
-      .build
-      .use(_ => IO.never)
+    val whitelist = List("1359866750")
+    config
+      .load[IO]
+      .flatMap { cfg =>
+        val botKey = cfg.botKey.value
+        val openRouterApiKey = cfg.openRouterConfig.apikey.value
+        val openRouteUrl = cfg.openRouterConfig.uri
+        longPollingBot(botKey, openRouterApiKey, openRouteUrl, whitelist)
+      }
       .as(ExitCode.Success)
+  }
+
+  private def longPollingBot(
+      botKey: BotKey,
+      openRouterApiKey: OpenRouterApiKey,
+      openRouterUrl: OpenRouterUri,
+      whitelistId: List[String]
+  ): IO[Unit] = {
+    BlazeClientBuilder[IO].resource.use { httpClient =>
+      implicit val api: Api[IO] =
+        BotApi(httpClient, s"https://api.telegram.org/bot${botKey.value}")
+      implicit val llm: Llm[IO] =
+        new Mixtral8x7B[IO](httpClient, openRouterApiKey.value, openRouterUrl.value)
+
+      for {
+        bot <- TelegramBot.make[IO](whitelistId)
+        _ <- bot.start()
+      } yield ()
+    }
   }
 }
