@@ -24,17 +24,21 @@ object Main extends IOApp {
       openRouterApiKey: OpenRouterApiKey,
       openRouterUrl: OpenRouterUri,
       whitelistId: List[String]
-  ): IO[Unit] = {
+  ): IO[Unit] =
     BlazeClientBuilder[IO].resource.use { httpClient =>
-      implicit val api: Api[IO] =
-        BotApi(httpClient, s"https://api.telegram.org/bot${botKey.value}")
-      implicit val llm: Llm[IO] =
-        new Mixtral8x7B[IO](httpClient, openRouterApiKey.value, openRouterUrl.value)
+      val api: Api[IO] =
+        BotApi(http = httpClient, baseUrl = s"https://api.telegram.org/bot${botKey.value}")
+
+      val llm: LlmApi[IO] =
+        Llm.makeMixtral8x7B[IO](
+          http = httpClient,
+          apiUrl = openRouterUrl.value,
+          token = openRouterApiKey.value
+        )
 
       for {
-        bot <- TelegramBot.make[IO](whitelistId)
+        bot <- TelegramBot.make[IO](whitelistId, api, llm)
         _ <- bot.start()
       } yield ()
     }
-  }
 }

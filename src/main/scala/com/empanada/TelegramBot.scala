@@ -6,11 +6,11 @@ import telegramium.bots.high.implicits._
 import telegramium.bots.high.{Api => TelegramApi, _}
 import telegramium.bots.{Audio, ChatIntId, Message}
 
-class TelegramBot[F[_]: Async: Parallel] private(
-    whiteListUserIds: List[String]
+class TelegramBot[F[_]: Async: Parallel] private (
+    whiteListUserIds: List[String],
+    llm: LlmApi[F]
 )(implicit
-    api: TelegramApi[F],
-    llm: Llm[F]
+    api: TelegramApi[F]
 ) extends LongPollBot[F](api) {
 
   override def onMessage(msg: Message): F[Unit] = {
@@ -29,11 +29,15 @@ class TelegramBot[F[_]: Async: Parallel] private(
     }
   }
 
-  private def handleText(msg: String)(implicit id: ChatIntId): F[Message] = {
-    llm.ask(msg).flatMap { llmResponse =>
-      Methods.sendMessage(chatId = id, text = llmResponse).exec
-    }
-  }
+  private def handleText(msg: String)(implicit id: ChatIntId): F[Message] =
+    llm
+      .ask(msg)
+      .flatMap { llmResponse =>
+        Methods.sendMessage(id, llmResponse).exec
+      }
+      .handleErrorWith(e =>
+        Methods.sendMessage(id, s"Something unexpected happened: ${e.getMessage}").exec
+      )
 
   private def handeAudio(
       audio: Audio
@@ -68,10 +72,11 @@ class TelegramBot[F[_]: Async: Parallel] private(
 
 object TelegramBot {
   def make[F[_]: Async: Parallel](
-      whiteListUserIds: List[String]
-  )(implicit
+      whiteListUserIds: List[String],
       api: TelegramApi[F],
-      llm: Llm[F]
-  ): F[TelegramBot[F]] =
-    Sync[F].delay(new TelegramBot[F](whiteListUserIds))
+      llm: LlmApi[F]
+  ): F[TelegramBot[F]] = {
+    implicit val apiImpl = api
+    Sync[F].delay(new TelegramBot[F](whiteListUserIds, llm))
+  }
 }
