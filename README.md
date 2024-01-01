@@ -1,4 +1,4 @@
-# llm-api
+# bot-llm
 
 A simple integration between Telegram bots and Open Router API
 
